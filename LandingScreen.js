@@ -77,7 +77,7 @@ export default function LandingScreen({ navigation }) {
 
   const handleStartRunning = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    navigation.navigate('MainApp');
+    navigation.navigate('Login');
   };
 
   const features = [
