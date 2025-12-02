@@ -1,4 +1,4 @@
-// MainApp.js
+// MainApp.js - Updated with User Profile and Logout
 import React, { useEffect, useState, useRef } from 'react';
 import { StyleSheet, View, Text, Button, Alert, TouchableOpacity } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
@@ -7,7 +7,10 @@ import io from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TestPanel from './TestPanel';
 import RunHistory from './RunHistory';
+import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { AuthService } from './services/AuthService';
 
 // Change this to your server IP/URL
 const SERVER_URL = 'http://192.168.1.6:3001';
@@ -15,7 +18,21 @@ const SERVER_URL = 'http://192.168.1.6:3001';
 // Storage keys
 const RUNS_STORAGE_KEY = '@pack_runs';
 
-export default function MainApp({ navigation }) {
+// Color constants matching your design
+const COLORS = {
+  primary: '#2563EB',
+  primaryLight: '#3B82F6',
+  secondary: '#7C3AED',
+  surface: '#FFFFFF',
+  surfaceHigh: '#F1F5F9',
+  textPrimary: '#0F172A',
+  textSecondary: '#475569',
+  textTertiary: '#94A3B8',
+  success: '#10B981',
+  warning: '#F59E0B',
+};
+
+export default function MainApp({ navigation, onLogout }) {
   const [userLocation, setUserLocation] = useState(null);
   const [runners, setRunners] = useState([]);
   const [tracking, setTracking] = useState(false);
@@ -24,6 +41,7 @@ export default function MainApp({ navigation }) {
   const [showTestPanel, setShowTestPanel] = useState(false);
   const [currentScreen, setCurrentScreen] = useState('home'); // 'home', 'tracking', 'history'
   const [completedRuns, setCompletedRuns] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
   const socketRef = useRef(null);
   const locationSubscriptionRef = useRef(null);
   const runStartTimeRef = useRef(null);
@@ -44,6 +62,20 @@ export default function MainApp({ navigation }) {
     };
     
     loadSavedRuns();
+  }, []);
+
+  // Load current user
+  useEffect(() => {
+    const loadCurrentUser = async () => {
+      try {
+        const user = await AuthService.getCurrentUser();
+        setCurrentUser(user);
+      } catch (error) {
+        console.error('Failed to load user:', error);
+      }
+    };
+    
+    loadCurrentUser();
   }, []);
 
   // Initialize socket connection
@@ -196,6 +228,35 @@ export default function MainApp({ navigation }) {
     );
   };
 
+  // Logout handler
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Logout', 
+          style: 'destructive',
+          onPress: async () => {
+            // Clean up any active tracking
+            if (tracking) {
+              stopTracking();
+            }
+            
+            // Call the parent logout handler
+            if (onLogout) {
+              onLogout();
+            }
+            
+            // Navigate back to landing
+            navigation.navigate('Landing');
+          }
+        }
+      ]
+    );
+  };
+
   // Start tracking and join a run
   const startTracking = async () => {
     // Request location permissions
@@ -215,7 +276,7 @@ export default function MainApp({ navigation }) {
     if (socketRef.current) {
       socketRef.current.emit('join-run', {
         runId: newRunId,
-        runnerName: 'You'
+        runnerName: currentUser?.name || 'You'
       });
     }
 
@@ -234,7 +295,7 @@ export default function MainApp({ navigation }) {
     setRunners([
       { 
         id: 'you', 
-        name: 'You', 
+        name: currentUser?.name || 'You', 
         latitude: location.coords.latitude, 
         longitude: location.coords.longitude, 
         color: '#FF0000',
@@ -428,9 +489,25 @@ export default function MainApp({ navigation }) {
     return ((totalSpeed / runners.length) * 3.6).toFixed(1);
   };
 
-  // Render Home Screen
+  // Render Home Screen with User Profile
   const renderHomeScreen = () => (
     <View style={styles.centered}>
+      {/* User Welcome */}
+      {currentUser && (
+        <View style={styles.userWelcome}>
+          <LinearGradient
+            colors={[COLORS.primary, COLORS.primaryLight]}
+            style={styles.userAvatar}
+          >
+            <Text style={styles.userInitial}>
+              {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+            </Text>
+          </LinearGradient>
+          <Text style={styles.welcomeText}>Welcome back,</Text>
+          <Text style={styles.userName}>{currentUser.name || 'Runner'}</Text>
+        </View>
+      )}
+      
       <Text style={styles.welcome}>🏃‍♂️ Pack</Text>
       <Text style={styles.description}>
         Track your running group in real-time with live positions and gap analysis
@@ -613,6 +690,14 @@ export default function MainApp({ navigation }) {
               {completedRuns.length} run{completedRuns.length !== 1 ? 's' : ''}
             </Text>
           )}
+          {currentScreen === 'home' && (
+            <TouchableOpacity 
+              onPress={handleLogout}
+              style={styles.logoutButton}
+            >
+              <Feather name="log-out" size={18} color="rgba(255,255,255,0.9)" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
       
@@ -667,6 +752,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
+  logoutButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    marginLeft: 10,
+  },
   map: {
     flex: 1,
     width: '100%',
@@ -676,6 +767,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+  },
+  userWelcome: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  userAvatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  userInitial: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  welcomeText: {
+    fontSize: 14,
+    color: '#94A3B8',
+    marginBottom: 4,
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#0F172A',
   },
   welcome: {
     fontSize: 32,
